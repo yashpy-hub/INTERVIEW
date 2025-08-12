@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { BrainCircuit, Loader2, Mic, FileText, Bot, User, ArrowRight } from 'lucide-react';
+import { BrainCircuit, Loader2, Mic, FileText, Bot, User, ArrowRight, Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,9 +13,10 @@ import { generateInterviewQuestions } from '@/ai/flows/generate-interview-questi
 import { analyzeInterviewResponse } from '@/ai/flows/analyze-interview-response';
 import { assessToneAndConfidence } from '@/ai/flows/assess-tone-and-confidence';
 import { generatePerformanceReport } from '@/ai/flows/generate-performance-report';
+import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { PerformanceReportDialog } from './performance-report-dialog';
 
-type InterviewState = 'idle' | 'configuring' | 'generating_questions' | 'in_progress' | 'listening' | 'analyzing' | 'finished';
+type InterviewState = 'idle' | 'configuring' | 'generating_questions' | 'in_progress' | 'listening' | 'analyzing' | 'speaking' | 'finished';
 type TranscriptItem = { speaker: 'ai' | 'user'; content: string };
 type Analysis = {
   feedback: string;
@@ -43,14 +44,29 @@ export function InterviewContainer() {
   const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-  const speak = useCallback((text: string) => {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.9;
-      window.speechSynthesis.speak(utterance);
+  const speak = useCallback(async (text: string, onEnd?: () => void) => {
+    if (typeof window !== 'undefined') {
+        setInterviewState('speaking');
+        try {
+            const { audioDataUri } = await textToSpeech(text);
+            if (audioPlayerRef.current) {
+                audioPlayerRef.current.src = audioDataUri;
+                audioPlayerRef.current.play();
+                audioPlayerRef.current.onended = () => {
+                    setInterviewState('in_progress');
+                    onEnd?.();
+                };
+            }
+        } catch (error) {
+            console.error("TTS Error:", error);
+            toast({ variant: 'destructive', title: 'Could not play audio', description: 'There was an issue with text-to-speech.' });
+            setInterviewState('in_progress');
+            onEnd?.();
+        }
     }
-  }, []);
+  }, [toast]);
 
   const initSpeechRecognition = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -102,8 +118,7 @@ export function InterviewContainer() {
       const { questions: generatedQuestions } = await generateInterviewQuestions({ jobDescription, numberOfQuestions: 5 });
       setQuestions(generatedQuestions);
       setTranscript([{ speaker: 'ai', content: generatedQuestions[0] }]);
-      setInterviewState('in_progress');
-      speak(generatedQuestions[0]);
+      await speak(generatedQuestions[0]);
     } catch (error) {
       console.error(error);
       toast({
@@ -172,15 +187,22 @@ export function InterviewContainer() {
             audioDataUri ? assessToneAndConfidence({ audioDataUri, transcript: answer }) : Promise.resolve(null),
         ]);
 
-        setAnalysis({
+        const newAnalysis = {
             feedback: responseAnalysis.feedback,
             score: responseAnalysis.score,
             areasForImprovement: responseAnalysis.areasForImprovement,
             toneAnalysis: toneAnalysis?.toneAnalysis ?? 'N/A',
             confidenceScore: toneAnalysis?.confidenceScore ?? 0,
             toneFeedback: toneAnalysis?.feedback ?? 'Tone analysis requires microphone access.',
-        });
+        };
+        
+        setAnalysis(newAnalysis);
         setTranscript(prev => [...prev, { speaker: 'user', content: answer }]);
+
+        const feedbackToSpeak = `Here is your feedback. Your response score is ${newAnalysis.score} out of 100. ${newAnalysis.feedback}. For improvement, you could ${newAnalysis.areasForImprovement}. Regarding your tone, ${newAnalysis.toneFeedback}`;
+
+        await speak(feedbackToSpeak, handleNextQuestion);
+
     } catch (error) {
         console.error('Analysis error:', error);
         toast({
@@ -188,8 +210,7 @@ export function InterviewContainer() {
             title: 'Analysis Failed',
             description: 'Could not analyze the response. Please proceed to the next question.',
         });
-    } finally {
-        setInterviewState('in_progress');
+         setInterviewState('in_progress');
     }
   };
 
@@ -228,6 +249,8 @@ export function InterviewContainer() {
   };
 
   const renderCurrentState = () => {
+    const isBusy = ['generating_questions', 'analyzing', 'speaking'].includes(interviewState);
+
     switch (interviewState) {
       case 'idle':
       case 'configuring':
@@ -245,12 +268,12 @@ export function InterviewContainer() {
                   placeholder="e.g., Senior Product Manager"
                   value={jobDescription}
                   onChange={(e) => setJobDescription(e.target.value)}
-                  disabled={interviewState === 'generating_questions'}
+                  disabled={isBusy}
                 />
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleStartInterview} disabled={!jobDescription.trim() || interviewState === 'generating_questions'} className="w-full">
+              <Button onClick={handleStartInterview} disabled={!jobDescription.trim() || isBusy} className="w-full">
                 {interviewState === 'generating_questions' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bot className="mr-2 h-4 w-4" />}
                 Start Interview
               </Button>
@@ -259,21 +282,20 @@ export function InterviewContainer() {
         );
 
       case 'generating_questions':
-         return (
-            <div className="flex flex-col items-center justify-center gap-4 p-8">
-              <Loader2 className="h-12 w-12 animate-spin text-primary" />
-              <p className="text-lg text-muted-foreground">Generating interview questions...</p>
-            </div>
-          );
-
+      case 'analyzing':
+      case 'speaking':
       case 'in_progress':
       case 'listening':
-      case 'analyzing':
         return (
           <div className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>Question {currentQuestionIndex + 1} of {questions.length}</CardTitle>
+                {interviewState === 'speaking' && 
+                    <CardDescription className="flex items-center gap-2 text-primary animate-pulse">
+                        <Volume2 className="h-4 w-4" /> AI is speaking...
+                    </CardDescription>
+                }
               </CardHeader>
               <CardContent className="text-lg font-semibold">
                 <p>{questions[currentQuestionIndex]}</p>
@@ -291,8 +313,8 @@ export function InterviewContainer() {
                                 {isListening && <p className="text-primary animate-pulse">Listening...</p>}
                                 <p>{currentResponse}</p>
                             </div>
-                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={interviewState === 'analyzing'} className="w-full">
-                                {interviewState === 'analyzing' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
+                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy || (!isListening && !!analysis)} className="w-full">
+                                {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
                                 {isListening ? 'Stop & Analyze' : 'Record Answer'}
                             </Button>
                         </div>
@@ -303,10 +325,10 @@ export function InterviewContainer() {
                                 value={currentResponse}
                                 onChange={(e) => setCurrentResponse(e.target.value)}
                                 rows={5}
-                                disabled={isListening || interviewState === 'analyzing'}
+                                disabled={isBusy || isListening || !!analysis}
                             />
-                             <Button onClick={stopRecordingAndAnalyze} disabled={isListening || interviewState === 'analyzing'} className="w-full">
-                                {interviewState === 'analyzing' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
+                             <Button onClick={stopRecordingAndAnalyze} disabled={isBusy || isListening || !!analysis} className="w-full">
+                                {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
                                 Submit Answer
                             </Button>
                         </div>
@@ -348,8 +370,9 @@ export function InterviewContainer() {
                     </div>
                 </CardContent>
                 <CardFooter>
-                   <Button onClick={handleNextQuestion} className="w-full bg-accent hover:bg-accent/90">
-                    Next Question <ArrowRight className="ml-2 h-4 w-4" />
+                   <Button onClick={handleNextQuestion} className="w-full bg-accent hover:bg-accent/90" disabled={isBusy}>
+                     {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="ml-2 h-4 w-4" />}
+                     {isBusy ? 'Processing...' : 'Next Question'}
                    </Button>
                 </CardFooter>
               </Card>
@@ -389,6 +412,7 @@ export function InterviewContainer() {
   return (
     <div className="container mx-auto max-w-4xl py-8 px-4">
         {renderCurrentState()}
+        <audio ref={audioPlayerRef} className="hidden" />
         <PerformanceReportDialog isOpen={isReportOpen} onOpenChange={setIsReportOpen} report={finalReport} />
     </div>
   );

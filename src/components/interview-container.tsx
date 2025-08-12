@@ -371,8 +371,8 @@ export function InterviewContainer() {
                 </CardContent>
                 <CardFooter>
                    <Button onClick={handleNextQuestion} className="w-full bg-accent hover:bg-accent/90" disabled={isBusy}>
-                     {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="ml-2 h-4 w-4" />}
-                     {isBusy ? 'Processing...' : 'Next Question'}
+                     Next Question
+                     <ArrowRight className="ml-2 h-4 w-4" />
                    </Button>
                 </CardFooter>
               </Card>

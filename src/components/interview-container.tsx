@@ -51,24 +51,26 @@ export function InterviewContainer() {
 
 
   const speak = useCallback(async (text: string, onEnd?: () => void) => {
-    if (typeof window !== 'undefined') {
-        setInterviewState('speaking');
-        try {
-            const { audioDataUri } = await textToSpeech(text);
-            if (audioPlayerRef.current) {
-                audioPlayerRef.current.src = audioDataUri;
-                audioPlayerRef.current.play();
-                audioPlayerRef.current.onended = () => {
-                    setInterviewState('in_progress');
-                    onEnd?.();
-                };
-            }
-        } catch (error) {
-            console.error("TTS Error:", error);
-            toast({ variant: 'destructive', title: 'Could not play audio', description: 'There was an issue with text-to-speech. You can continue via text.' });
-            setInterviewState('in_progress');
-            onEnd?.(); // Still call onEnd to proceed
-        }
+    setInterviewState('speaking');
+    try {
+      const { audioDataUri } = await textToSpeech(text);
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.src = audioDataUri;
+        audioPlayerRef.current.play();
+        audioPlayerRef.current.onended = () => {
+          setInterviewState('in_progress');
+          onEnd?.();
+        };
+      }
+    } catch (error) {
+      console.error("TTS Error:", error);
+      toast({
+        variant: 'destructive',
+        title: 'Could not play audio',
+        description: 'Text-to-speech failed. You can continue via text.',
+      });
+      setInterviewState('in_progress');
+      onEnd?.(); // Still call onEnd to proceed
     }
   }, [toast]);
 
@@ -82,16 +84,16 @@ export function InterviewContainer() {
       
       recognition.onresult = (event) => {
         let interimTranscript = '';
-        let final = '';
+        let finalTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
+            finalTranscript += event.results[i][0].transcript;
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        finalTranscriptRef.current = final;
-        setCurrentResponse(final + interimTranscript);
+        finalTranscriptRef.current = finalTranscript;
+        setCurrentResponse(finalTranscript + interimTranscript);
       };
 
       recognitionRef.current = recognition;
@@ -102,9 +104,7 @@ export function InterviewContainer() {
     const checkMic = async () => {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
-          // Just checking for permission, not starting the stream here
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          // Stop the tracks immediately after getting permission
           stream.getTracks().forEach(track => track.stop());
           setIsMicAvailable(true);
           initSpeechRecognition();
@@ -146,72 +146,67 @@ export function InterviewContainer() {
   };
 
   const startRecording = async () => {
-    if (isMicAvailable && recognitionRef.current) {
-      setCurrentResponse('');
-      finalTranscriptRef.current = '';
-      setAnalysis(null);
-      setInterviewState('listening');
-      
-      try {
+    if (!isMicAvailable || !recognitionRef.current) {
+        toast({ variant: 'destructive', title: 'Microphone not available', description: 'Please enable microphone access to record your answer.' });
+        return;
+    }
+
+    setCurrentResponse('');
+    finalTranscriptRef.current = '';
+    setAnalysis(null);
+    setInterviewState('listening');
+    setIsListening(true);
+    
+    try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
         
         recognitionRef.current.start();
 
-        mediaRecorderRef.current = new MediaRecorder(stream);
+        const recorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = recorder;
         audioChunksRef.current = [];
-        mediaRecorderRef.current.ondataavailable = (event) => {
-          audioChunksRef.current.push(event.data);
+        
+        recorder.ondataavailable = (event) => {
+            audioChunksRef.current.push(event.data);
         };
-        mediaRecorderRef.current.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-              const base64Audio = reader.result as string;
-              // Use the transcript captured by the ref
-              await analyze(finalTranscriptRef.current, base64Audio);
-          };
+        
+        recorder.onstop = () => {
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = async () => {
+                const base64Audio = reader.result as string;
+                // Use the final transcript captured from the last 'isFinal' event
+                await analyze(finalTranscriptRef.current, base64Audio);
+            };
         };
-        mediaRecorderRef.current.start();
-        setIsListening(true);
-      } catch (err) {
-          console.error("Error starting audio source:", err);
-          toast({ variant: 'destructive', title: 'Could not start audio source', description: 'Please check your microphone permissions and try again.' });
-          setInterviewState('in_progress');
-      }
 
-    } else {
-       // Fallback for text input
-       setCurrentResponse('');
-       setAnalysis(null);
-       setInterviewState('listening');
-       setIsListening(true);
+        recorder.start();
+    } catch (err) {
+        console.error("Error starting audio source:", err);
+        toast({ variant: 'destructive', title: 'Could not start audio source', description: 'Please check your microphone permissions and try again.' });
+        setInterviewState('in_progress');
+        setIsListening(false);
     }
   };
 
   const stopRecordingAndAnalyze = async () => {
-    setInterviewState('analyzing');
-    setIsListening(false);
+      if (!isListening) return;
 
-    if (isMicAvailable && recognitionRef.current) {
-        recognitionRef.current.stop();
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            mediaRecorderRef.current.stop();
-        }
-        if (streamRef.current) {
+      setInterviewState('analyzing');
+      setIsListening(false);
+
+      if (recognitionRef.current) {
+          recognitionRef.current.stop();
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+      }
+      if (streamRef.current) {
           streamRef.current.getTracks().forEach(track => track.stop());
           streamRef.current = null;
-        }
-    } else {
-        // Text-based submission
-        if (!currentResponse.trim()) {
-            toast({ variant: 'destructive', title: 'Empty response', description: 'Please type your answer before submitting.' });
-            setInterviewState('in_progress');
-            return;
-        }
-        await analyze(currentResponse);
-    }
+      }
   };
 
   const analyze = async (answer: string, audioDataUri?: string) => {
@@ -377,7 +372,7 @@ export function InterviewContainer() {
                                 rows={5}
                                 disabled={isBusy || !!analysis}
                             />
-                             <Button onClick={stopRecordingAndAnalyze} disabled={isBusy || !!analysis || !currentResponse.trim()} className="w-full">
+                             <Button onClick={() => analyze(currentResponse)} disabled={isBusy || !!analysis || !currentResponse.trim()} className="w-full">
                                 {isBusy && !analysis ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
                                 Submit Answer
                             </Button>
@@ -467,3 +462,5 @@ export function InterviewContainer() {
     </div>
   );
 }
+
+    

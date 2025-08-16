@@ -114,6 +114,10 @@ export function InterviewContainer() {
 
   const handleStartInterview = async () => {
     setInterviewState('generating_questions');
+    setTranscript([]);
+    setQuestions([]);
+    setCurrentQuestionIndex(0);
+    setAnalysis(null);
     try {
       const { questions: generatedQuestions } = await generateInterviewQuestions({ jobDescription, numberOfQuestions: 5 });
       setQuestions(generatedQuestions);
@@ -322,8 +326,8 @@ export function InterviewContainer() {
                                 {isListening && <p className="text-primary animate-pulse">Listening...</p>}
                                 <p>{currentResponse}</p>
                             </div>
-                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy || (!isListening && !!analysis)} className="w-full">
-                                {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
+                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy} className="w-full">
+                                {isBusy && interviewState !== 'listening' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
                                 {isListening ? 'Stop & Analyze' : 'Record Answer'}
                             </Button>
                         </div>
@@ -334,9 +338,9 @@ export function InterviewContainer() {
                                 value={currentResponse}
                                 onChange={(e) => setCurrentResponse(e.target.value)}
                                 rows={5}
-                                disabled={isBusy || isListening || !!analysis}
+                                disabled={isBusy || !!analysis}
                             />
-                             <Button onClick={stopRecordingAndAnalyze} disabled={isBusy || isListening || !!analysis} className="w-full">
+                             <Button onClick={stopRecordingAndAnalyze} disabled={isBusy || !!analysis} className="w-full">
                                 {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
                                 Submit Answer
                             </Button>
@@ -426,3 +430,5 @@ export function InterviewContainer() {
     </div>
   );
 }
+
+    

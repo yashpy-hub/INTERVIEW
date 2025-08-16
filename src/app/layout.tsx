@@ -3,7 +3,7 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 
 export const metadata: Metadata = {
-  title: 'AceInterview: AI Mock Interviews',
+  title: 'YASHINTERVIEW: AI Mock Interviews',
   description: 'AI-powered voice-to-voice mock interviews to help you ace your next job application. Get real-time feedback on your answers, tone, and confidence.',
 };
 

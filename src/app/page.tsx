@@ -8,7 +8,7 @@ export default function Home() {
         <div className="container flex h-16 items-center space-x-4 sm:justify-between sm:space-x-0">
           <div className="flex gap-2 items-center">
             <Icons.logo className="h-6 w-6 text-primary" />
-            <p className="font-bold text-lg">AceInterview</p>
+            <p className="font-bold text-lg">YASHINTERVIEW</p>
           </div>
         </div>
       </header>

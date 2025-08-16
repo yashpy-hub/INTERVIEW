@@ -82,8 +82,8 @@ export function InterviewContainer() {
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
-      recognition.interimResults = true;
       recognition.lang = 'en-US';
+ recognition.interimResults = true;
       
       recognition.onresult = (event) => {
         let interimTranscript = '';
@@ -153,7 +153,7 @@ export function InterviewContainer() {
   };
 
   const startRecording = async () => {
-    if (!isMicAvailable || !recognitionRef.current) {
+    if (!isMicAvailable || recognitionRef.current == null) { // Check if recognitionRef.current is null or undefined
         toast({ variant: 'destructive', title: 'Microphone not available', description: 'Please enable microphone access to record your answer.' });
         return;
     }

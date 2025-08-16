@@ -16,6 +16,7 @@ import { assessToneAndConfidence } from '@/ai/flows/assess-tone-and-confidence';
 import { generatePerformanceReport } from '@/ai/flows/generate-performance-report';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { PerformanceReportDialog } from './performance-report-dialog';
+import { WebcamView } from './webcam-view';
 
 type InterviewState = 'idle' | 'configuring' | 'generating_questions' | 'in_progress' | 'listening' | 'analyzing' | 'speaking' | 'finished';
 type TranscriptItem = { speaker: 'ai' | 'user'; content: string };
@@ -47,7 +48,7 @@ export function InterviewContainer() {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const finalTranscriptRef = useRef('');
-  const streamRef = useRef<MediaStream | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
 
   const speak = useCallback(async (text: string, onEnd?: () => void) => {
@@ -87,15 +88,21 @@ export function InterviewContainer() {
       
       recognition.onresult = (event) => {
         let interimTranscript = '';
-        finalTranscriptRef.current = '';
+        let finalTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscriptRef.current += event.results[i][0].transcript;
+            finalTranscript += event.results[i][0].transcript;
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        setCurrentResponse(finalTranscriptRef.current + interimTranscript);
+        finalTranscriptRef.current = finalTranscript;
+        setCurrentResponse(finalTranscript + interimTranscript);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setInterviewState('analyzing');
       };
 
       recognitionRef.current = recognition;
@@ -104,25 +111,20 @@ export function InterviewContainer() {
 
   useEffect(() => {
     const checkMic = async () => {
-      // Check if running in a browser environment
       if (typeof window !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
-          // You can ask for permission upfront or wait until the user clicks the record button.
-          // Asking here to set isMicAvailable state.
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach(track => track.stop()); // Stop the track immediately after getting permission
+          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          micStream.getTracks().forEach(track => track.stop());
           setIsMicAvailable(true);
           initSpeechRecognition();
         } catch (error) {
           console.error('Microphone access denied.', error);
           setIsMicAvailable(false);
-          // Don't toast here, as it can be annoying on page load. 
-          // Toast will be shown if they try to record without permission.
         }
       }
     };
     checkMic();
-  }, [initSpeechRecognition, toast]);
+  }, [initSpeechRecognition]);
 
 
   const handleStartInterview = async () => {
@@ -161,12 +163,12 @@ export function InterviewContainer() {
     setIsListening(true);
     
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        streamRef.current = stream;
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setStream(audioStream);
         
         recognitionRef.current.start();
 
-        const recorder = new MediaRecorder(stream);
+        const recorder = new MediaRecorder(audioStream);
         mediaRecorderRef.current = recorder;
         audioChunksRef.current = [];
         
@@ -180,7 +182,6 @@ export function InterviewContainer() {
             reader.readAsDataURL(audioBlob);
             reader.onloadend = async () => {
                 const base64Audio = reader.result as string;
-                // Use the final transcript captured from the last 'isFinal' event
                 await analyze(finalTranscriptRef.current, base64Audio);
             };
         };
@@ -197,8 +198,8 @@ export function InterviewContainer() {
   const stopRecordingAndAnalyze = async () => {
       if (!isListening) return;
 
-      setInterviewState('analyzing');
       setIsListening(false);
+      setInterviewState('analyzing');
 
       if (recognitionRef.current) {
           recognitionRef.current.stop();
@@ -206,9 +207,9 @@ export function InterviewContainer() {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
           mediaRecorderRef.current.stop();
       }
-      if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-          streamRef.current = null;
+      if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+          setStream(null);
       }
   };
 
@@ -361,7 +362,7 @@ export function InterviewContainer() {
                                 {isListening && <p className="text-primary animate-pulse">Listening...</p>}
                                 <p>{currentResponse}</p>
                             </div>
-                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy} className="w-full">
+                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy && interviewState !== 'listening'} className="w-full">
                                 {isBusy && interviewState !== 'listening' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
                                 {isListening ? 'Stop & Analyze' : 'Record Answer'}
                             </Button>
@@ -458,12 +459,13 @@ export function InterviewContainer() {
   };
 
   return (
-    <div className="container mx-auto max-w-4xl py-8 px-4">
-        {renderCurrentState()}
-        <audio ref={audioPlayerRef} className="hidden" />
-        <PerformanceReportDialog isOpen={isReportOpen} onOpenChange={setIsReportOpen} report={finalReport} />
-    </div>
+    <>
+      <div className="container mx-auto max-w-4xl py-8 px-4">
+          {renderCurrentState()}
+          <audio ref={audioPlayerRef} className="hidden" />
+          <PerformanceReportDialog isOpen={isReportOpen} onOpenChange={setIsReportOpen} report={finalReport} />
+      </div>
+      {interviewState !== 'idle' && interviewState !== 'configuring' && <WebcamView />}
+    </>
   );
 }
-
-    

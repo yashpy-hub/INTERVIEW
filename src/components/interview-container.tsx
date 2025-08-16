@@ -45,6 +45,7 @@ export function InterviewContainer() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const finalTranscriptRef = useRef('');
 
   const speak = useCallback(async (text: string, onEnd?: () => void) => {
     if (typeof window !== 'undefined') {
@@ -75,18 +76,26 @@ export function InterviewContainer() {
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
+      
       recognition.onresult = (event) => {
         let interimTranscript = '';
-        let finalTranscript = '';
+        finalTranscriptRef.current = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            finalTranscriptRef.current += event.results[i][0].transcript;
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        setCurrentResponse(finalTranscript + interimTranscript);
+        setCurrentResponse(finalTranscriptRef.current + interimTranscript);
       };
+
+      recognition.onend = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      }
+
       recognitionRef.current = recognition;
     }
   }, []);
@@ -137,6 +146,7 @@ export function InterviewContainer() {
   const startRecording = async () => {
     if (isMicAvailable && recognitionRef.current) {
       setCurrentResponse('');
+      finalTranscriptRef.current = '';
       setAnalysis(null);
       setIsListening(true);
       setInterviewState('listening');
@@ -147,6 +157,15 @@ export function InterviewContainer() {
       audioChunksRef.current = [];
       mediaRecorderRef.current.ondataavailable = (event) => {
         audioChunksRef.current.push(event.data);
+      };
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+            const base64Audio = reader.result as string;
+            await analyze(finalTranscriptRef.current, base64Audio);
+        };
       };
       mediaRecorderRef.current.start();
     } else {
@@ -163,20 +182,6 @@ export function InterviewContainer() {
 
     if (isMicAvailable && recognitionRef.current) {
         recognitionRef.current.stop();
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            mediaRecorderRef.current.stop();
-            mediaRecorderRef.current.onstop = async () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                const reader = new FileReader();
-                reader.readAsDataURL(audioBlob);
-                reader.onloadend = async () => {
-                    const base64Audio = reader.result as string;
-                    await analyze(currentResponse, base64Audio);
-                };
-            };
-        } else {
-           await analyze(currentResponse);
-        }
     } else {
         if (!currentResponse.trim()) {
             toast({ variant: 'destructive', title: 'Empty response', description: 'Please type your answer before submitting.' });
@@ -188,6 +193,12 @@ export function InterviewContainer() {
   };
 
   const analyze = async (answer: string, audioDataUri?: string) => {
+    if (!answer.trim()) {
+        toast({ variant: 'destructive', title: 'Empty response', description: 'Please provide an answer.' });
+        setInterviewState('in_progress');
+        return;
+    }
+
     try {
         const question = questions[currentQuestionIndex];
         const [responseAnalysis, toneAnalysis] = await Promise.all([
@@ -206,6 +217,9 @@ export function InterviewContainer() {
         
         setAnalysis(newAnalysis);
         setTranscript(prev => [...prev, { speaker: 'user', content: answer }]);
+        setCurrentResponse('');
+        finalTranscriptRef.current = '';
+
 
         const feedbackToSpeak = `Here is your feedback. Your response score is ${newAnalysis.score} out of 100. ${newAnalysis.feedback}. For improvement, you could ${newAnalysis.areasForImprovement}. Regarding your tone, ${newAnalysis.toneFeedback}`;
 
@@ -226,6 +240,7 @@ export function InterviewContainer() {
   const handleNextQuestion = () => {
     setAnalysis(null);
     setCurrentResponse('');
+    finalTranscriptRef.current = '';
     if (currentQuestionIndex < questions.length - 1) {
       const nextIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIndex);
@@ -326,7 +341,7 @@ export function InterviewContainer() {
                                 {isListening && <p className="text-primary animate-pulse">Listening...</p>}
                                 <p>{currentResponse}</p>
                             </div>
-                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy} className="w-full">
+                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy && interviewState !== 'listening'} className="w-full">
                                 {isBusy && interviewState !== 'listening' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
                                 {isListening ? 'Stop & Analyze' : 'Record Answer'}
                             </Button>
@@ -340,8 +355,8 @@ export function InterviewContainer() {
                                 rows={5}
                                 disabled={isBusy || !!analysis}
                             />
-                             <Button onClick={stopRecordingAndAnalyze} disabled={isBusy || !!analysis} className="w-full">
-                                {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
+                             <Button onClick={stopRecordingAndAnalyze} disabled={isBusy || !!analysis || !currentResponse.trim()} className="w-full">
+                                {isBusy && !analysis ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
                                 Submit Answer
                             </Button>
                         </div>
@@ -430,5 +445,3 @@ export function InterviewContainer() {
     </div>
   );
 }
-
-    

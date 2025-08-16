@@ -36,7 +36,6 @@ export function InterviewContainer() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [currentResponse, setCurrentResponse] = useState('');
-  const [isListening, setIsListening] = useState(false);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [finalReport, setFinalReport] = useState('');
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -88,20 +87,20 @@ export function InterviewContainer() {
       
       recognition.onresult = (event) => {
         let interimTranscript = '';
-        finalTranscriptRef.current = '';
+        let finalTranscriptForThisResult = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscriptRef.current += event.results[i][0].transcript;
+            finalTranscriptForThisResult += event.results[i][0].transcript;
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        setCurrentResponse(finalTranscriptRef.current + interimTranscript);
+        finalTranscriptRef.current = finalTranscriptForThisResult;
+        setCurrentResponse(interimTranscript);
       };
 
       recognition.onend = () => {
-        setIsListening(false);
-        // The analysis is triggered by the media recorder's onstop event
+        // This is now just a safety net, main logic is in stopRecording
       };
 
       recognitionRef.current = recognition;
@@ -158,6 +157,7 @@ export function InterviewContainer() {
     setCurrentResponse('');
     finalTranscriptRef.current = '';
     setAnalysis(null);
+    setInterviewState('listening');
     
     try {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -182,23 +182,21 @@ export function InterviewContainer() {
                 const base64Audio = reader.result as string;
                 await analyze(finalAnswer, base64Audio);
             };
+            audioStream.getTracks().forEach(track => track.stop());
+            setStream(null);
         };
 
         recorder.start();
-        setInterviewState('listening');
-        setIsListening(true);
     } catch (err) {
         console.error("Error starting audio source:", err);
         toast({ variant: 'destructive', title: 'Could not start audio source', description: 'Please check your microphone permissions and try again.' });
         setInterviewState('in_progress');
-        setIsListening(false);
     }
   };
 
   const stopRecordingAndAnalyze = async () => {
-      if (!isListening) return;
-
-      setIsListening(false);
+      if (interviewState !== 'listening') return;
+      
       setInterviewState('analyzing');
 
       if (recognitionRef.current) {
@@ -359,12 +357,12 @@ export function InterviewContainer() {
                     {isMicAvailable ? (
                         <div className="space-y-4">
                             <div className="w-full p-4 border rounded-md min-h-[100px] bg-muted/50">
-                                {isListening && <p className="text-primary animate-pulse">Listening...</p>}
-                                <p>{currentResponse}</p>
+                                {interviewState === 'listening' && <p className="text-primary animate-pulse">Listening...</p>}
+                                <p>{currentResponse || finalTranscriptRef.current}</p>
                             </div>
-                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy && !isListening} className="w-full">
-                                {isBusy && !isListening ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
-                                {isListening ? 'Stop & Analyze' : 'Record Answer'}
+                            <Button onClick={interviewState === 'listening' ? stopRecordingAndAnalyze : startRecording} disabled={isBusy && interviewState !== 'listening'} className="w-full">
+                                {isBusy && interviewState !== 'listening' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
+                                {interviewState === 'listening' ? 'Stop & Analyze' : 'Record Answer'}
                             </Button>
                         </div>
                     ) : (
@@ -469,3 +467,5 @@ export function InterviewContainer() {
     </>
   );
 }
+
+    

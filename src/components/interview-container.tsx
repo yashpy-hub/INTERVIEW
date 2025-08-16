@@ -135,6 +135,7 @@ export function InterviewContainer() {
       setCurrentResponse('');
       setAnalysis(null);
       setIsListening(true);
+      setInterviewState('listening');
       recognitionRef.current.start();
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -148,6 +149,7 @@ export function InterviewContainer() {
        setCurrentResponse('');
        setAnalysis(null);
        setIsListening(true);
+       setInterviewState('listening');
     }
   };
 
@@ -157,7 +159,7 @@ export function InterviewContainer() {
 
     if (isMicAvailable && recognitionRef.current) {
         recognitionRef.current.stop();
-        if (mediaRecorderRef.current) {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             mediaRecorderRef.current.stop();
             mediaRecorderRef.current.onstop = async () => {
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
@@ -168,6 +170,8 @@ export function InterviewContainer() {
                     await analyze(currentResponse, base64Audio);
                 };
             };
+        } else {
+           await analyze(currentResponse);
         }
     } else {
         if (!currentResponse.trim()) {
@@ -282,10 +286,10 @@ export function InterviewContainer() {
         );
 
       case 'generating_questions':
-      case 'analyzing':
-      case 'speaking':
       case 'in_progress':
       case 'listening':
+      case 'analyzing':
+      case 'speaking':
         return (
           <div className="space-y-6">
             <Card>
@@ -294,6 +298,11 @@ export function InterviewContainer() {
                 {interviewState === 'speaking' && 
                     <CardDescription className="flex items-center gap-2 text-primary animate-pulse">
                         <Volume2 className="h-4 w-4" /> AI is speaking...
+                    </CardDescription>
+                }
+                 {interviewState === 'generating_questions' && 
+                    <CardDescription className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Generating questions...
                     </CardDescription>
                 }
               </CardHeader>
@@ -336,7 +345,7 @@ export function InterviewContainer() {
                 </CardContent>
             </Card>
 
-            {interviewState === 'analyzing' && (
+            {interviewState === 'analyzing' && !analysis && (
                 <div className="flex flex-col items-center justify-center gap-4 p-8">
                     <Loader2 className="h-12 w-12 animate-spin text-primary" />
                     <p className="text-lg text-muted-foreground">Analyzing your response...</p>
@@ -369,7 +378,7 @@ export function InterviewContainer() {
                         <p className="text-sm text-muted-foreground mt-2">{analysis.toneAnalysis}</p>
                     </div>
                 </CardContent>
-                <CardFooter>
+                 <CardFooter>
                    <Button onClick={handleNextQuestion} className="w-full bg-accent hover:bg-accent/90" disabled={isBusy}>
                      Next Question
                      <ArrowRight className="ml-2 h-4 w-4" />
@@ -397,7 +406,7 @@ export function InterviewContainer() {
                          {interviewState === 'analyzing' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
                         Generate Performance Report
                     </Button>
-                    <Button onClick={() => setInterviewState('idle')} variant="outline" className="w-full">
+                    <Button onClick={() => { setInterviewState('idle'); setTranscript([]); setQuestions([]); setCurrentQuestionIndex(0); setAnalysis(null); }} variant="outline" className="w-full">
                         Start New Interview
                     </Button>
                 </CardFooter>
@@ -417,5 +426,3 @@ export function InterviewContainer() {
     </div>
   );
 }
-
-    

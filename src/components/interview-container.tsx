@@ -68,7 +68,7 @@ export function InterviewContainer() {
       toast({
         variant: 'destructive',
         title: isRateLimitError ? 'TTS Rate Limit Reached' : 'Could not play audio',
-        description: isRateLimitError 
+        description: isRateLimitError
           ? 'You have exceeded the daily limit for audio generation. The interview will continue in text-only mode.'
           : 'Text-to-speech failed. You can continue via text.',
       });
@@ -95,17 +95,21 @@ export function InterviewContainer() {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        finalTranscriptRef.current = finalTranscriptForThisResult;
-        setCurrentResponse(interimTranscript);
+        if (finalTranscriptForThisResult) {
+          finalTranscriptRef.current += finalTranscriptForThisResult + ' ';
+        }
+        setCurrentResponse(finalTranscriptRef.current + interimTranscript);
       };
 
       recognition.onend = () => {
-        // This is now just a safety net, main logic is in stopRecording
+        if (interviewState === 'listening') {
+           // This is now just a safety net, main logic is in stopRecording
+        }
       };
 
       recognitionRef.current = recognition;
     }
-  }, []);
+  }, [interviewState]);
 
   useEffect(() => {
     const checkMic = async () => {
@@ -157,11 +161,11 @@ export function InterviewContainer() {
     setCurrentResponse('');
     finalTranscriptRef.current = '';
     setAnalysis(null);
-    setInterviewState('listening');
     
     try {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         setStream(audioStream);
+        setInterviewState('listening');
         
         recognitionRef.current.start();
 
@@ -174,7 +178,7 @@ export function InterviewContainer() {
         };
         
         recorder.onstop = () => {
-            const finalAnswer = finalTranscriptRef.current;
+            const finalAnswer = finalTranscriptRef.current.trim();
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
@@ -194,7 +198,7 @@ export function InterviewContainer() {
     }
   };
 
-  const stopRecordingAndAnalyze = async () => {
+  const stopRecordingAndAnalyze = () => {
       if (interviewState !== 'listening') return;
       
       setInterviewState('analyzing');
@@ -215,6 +219,8 @@ export function InterviewContainer() {
     if (!answer.trim()) {
         toast({ variant: 'destructive', title: 'Empty response', description: 'Your speech was not detected. Please try again.' });
         setInterviewState('in_progress');
+        setCurrentResponse('');
+        finalTranscriptRef.current = '';
         return;
     }
 
@@ -333,12 +339,12 @@ export function InterviewContainer() {
             <Card>
               <CardHeader>
                 <CardTitle>Question {currentQuestionIndex + 1} of {questions.length}</CardTitle>
-                {interviewState === 'speaking' && 
+                {interviewState === 'speaking' &&
                     <CardDescription className="flex items-center gap-2 text-primary animate-pulse">
                         <Volume2 className="h-4 w-4" /> AI is speaking...
                     </CardDescription>
                 }
-                 {interviewState === 'generating_questions' && 
+                 {interviewState === 'generating_questions' &&
                     <CardDescription className="flex items-center gap-2 text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" /> Generating questions...
                     </CardDescription>
@@ -358,7 +364,7 @@ export function InterviewContainer() {
                         <div className="space-y-4">
                             <div className="w-full p-4 border rounded-md min-h-[100px] bg-muted/50">
                                 {interviewState === 'listening' && <p className="text-primary animate-pulse">Listening...</p>}
-                                <p>{currentResponse || finalTranscriptRef.current}</p>
+                                <p>{currentResponse}</p>
                             </div>
                             <Button onClick={interviewState === 'listening' ? stopRecordingAndAnalyze : startRecording} disabled={isBusy && interviewState !== 'listening'} className="w-full">
                                 {isBusy && interviewState !== 'listening' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
@@ -367,7 +373,7 @@ export function InterviewContainer() {
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            <Textarea 
+                            <Textarea
                                 placeholder="Type your answer here..."
                                 value={currentResponse}
                                 onChange={(e) => setCurrentResponse(e.target.value)}
@@ -467,5 +473,3 @@ export function InterviewContainer() {
     </>
   );
 }
-
-    

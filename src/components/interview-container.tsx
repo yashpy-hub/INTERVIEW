@@ -88,21 +88,20 @@ export function InterviewContainer() {
       
       recognition.onresult = (event) => {
         let interimTranscript = '';
-        let finalTranscript = '';
+        finalTranscriptRef.current = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            finalTranscriptRef.current += event.results[i][0].transcript;
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        finalTranscriptRef.current = finalTranscript;
-        setCurrentResponse(finalTranscript + interimTranscript);
+        setCurrentResponse(finalTranscriptRef.current + interimTranscript);
       };
 
       recognition.onend = () => {
         setIsListening(false);
-        setInterviewState('analyzing');
+        // The analysis is triggered by the media recorder's onstop event
       };
 
       recognitionRef.current = recognition;
@@ -159,8 +158,6 @@ export function InterviewContainer() {
     setCurrentResponse('');
     finalTranscriptRef.current = '';
     setAnalysis(null);
-    setInterviewState('listening');
-    setIsListening(true);
     
     try {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -177,16 +174,19 @@ export function InterviewContainer() {
         };
         
         recorder.onstop = () => {
+            const finalAnswer = finalTranscriptRef.current;
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = async () => {
                 const base64Audio = reader.result as string;
-                await analyze(finalTranscriptRef.current, base64Audio);
+                await analyze(finalAnswer, base64Audio);
             };
         };
 
         recorder.start();
+        setInterviewState('listening');
+        setIsListening(true);
     } catch (err) {
         console.error("Error starting audio source:", err);
         toast({ variant: 'destructive', title: 'Could not start audio source', description: 'Please check your microphone permissions and try again.' });
@@ -362,8 +362,8 @@ export function InterviewContainer() {
                                 {isListening && <p className="text-primary animate-pulse">Listening...</p>}
                                 <p>{currentResponse}</p>
                             </div>
-                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy && interviewState !== 'listening'} className="w-full">
-                                {isBusy && interviewState !== 'listening' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
+                            <Button onClick={isListening ? stopRecordingAndAnalyze : startRecording} disabled={isBusy && !isListening} className="w-full">
+                                {isBusy && !isListening ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
                                 {isListening ? 'Stop & Analyze' : 'Record Answer'}
                             </Button>
                         </div>

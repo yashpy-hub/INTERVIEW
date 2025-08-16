@@ -62,15 +62,18 @@ export function InterviewContainer() {
           onEnd?.();
         };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("TTS Error:", error);
+      const isRateLimitError = error.message?.includes('429');
       toast({
         variant: 'destructive',
-        title: 'Could not play audio',
-        description: 'Text-to-speech failed. You can continue via text.',
+        title: isRateLimitError ? 'TTS Rate Limit Reached' : 'Could not play audio',
+        description: isRateLimitError 
+          ? 'You have exceeded the daily limit for audio generation. The interview will continue in text-only mode.'
+          : 'Text-to-speech failed. You can continue via text.',
       });
       setInterviewState('in_progress');
-      onEnd?.(); // Still call onEnd to proceed
+      onEnd?.();
     }
   }, [toast]);
 
@@ -84,16 +87,15 @@ export function InterviewContainer() {
       
       recognition.onresult = (event) => {
         let interimTranscript = '';
-        let finalTranscript = '';
+        finalTranscriptRef.current = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            finalTranscriptRef.current += event.results[i][0].transcript;
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        finalTranscriptRef.current = finalTranscript;
-        setCurrentResponse(finalTranscript + interimTranscript);
+        setCurrentResponse(finalTranscriptRef.current + interimTranscript);
       };
 
       recognitionRef.current = recognition;
@@ -102,25 +104,26 @@ export function InterviewContainer() {
 
   useEffect(() => {
     const checkMic = async () => {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      // Check if running in a browser environment
+      if (typeof window !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
+          // You can ask for permission upfront or wait until the user clicks the record button.
+          // Asking here to set isMicAvailable state.
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach(track => track.stop());
+          stream.getTracks().forEach(track => track.stop()); // Stop the track immediately after getting permission
           setIsMicAvailable(true);
           initSpeechRecognition();
         } catch (error) {
           console.error('Microphone access denied.', error);
           setIsMicAvailable(false);
-          toast({
-            variant: "destructive",
-            title: "Microphone Access Denied",
-            description: "Voice features disabled. You can still use the app via text input.",
-          });
+          // Don't toast here, as it can be annoying on page load. 
+          // Toast will be shown if they try to record without permission.
         }
       }
     };
     checkMic();
   }, [initSpeechRecognition, toast]);
+
 
   const handleStartInterview = async () => {
     setInterviewState('generating_questions');
